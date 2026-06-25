@@ -39,7 +39,7 @@ Start with one command:
 wisper setup
 ```
 
-It asks you to choose model from a menu, paste API key, verifies it, asks shortcut, asks whether to enable startup automatically, then starts the listener immediately.
+It asks you to choose model from a menu, paste API key, verifies it, captures shortcut by pressing keys, asks whether to enable startup automatically, then starts the listener immediately.
 
 Useful commands:
 

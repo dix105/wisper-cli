@@ -10,6 +10,7 @@ import { isRecording, startRecording, stopRecording } from './audio.js';
 import { listenForShortcut } from './hotkey.js';
 import { pasteIntoActiveApp } from './paste.js';
 import { transcribeFile } from './transcribe.js';
+import { captureShortcut } from './shortcut-capture.js';
 
 const [command, ...args] = process.argv.slice(2);
 
@@ -146,8 +147,10 @@ async function selectModel(prompt = createPrompt()) {
 
 async function setShortcut(allowDefault = false, prompt = createPrompt()) {
   try {
-    const answer = await prompt.ask(`Shortcut${allowDefault ? ` [${defaultShortcut}]` : ''}: `);
-    const shortcut = answer || defaultShortcut;
+    const typed = await prompt.confirm('Capture shortcut by pressing keys now?', true);
+    const shortcut = typed
+      ? await captureShortcut(defaultShortcut)
+      : (await prompt.ask(`Shortcut${allowDefault ? ` [${defaultShortcut}]` : ''}: `) || defaultShortcut);
     await updateConfig({ shortcut });
     console.log(`Shortcut set to ${shortcut}.`);
   } finally {
