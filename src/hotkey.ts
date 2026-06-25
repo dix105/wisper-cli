@@ -15,16 +15,19 @@ type KeyEvent = {
 };
 
 function normalizeKey(key: string) {
+  const platformControl = process.platform === 'darwin' ? 'META' : 'CTRL';
   return key
     .trim()
     .toUpperCase()
     .replace(/^LEFT /, '')
     .replace(/^RIGHT /, '')
+    .replace('COMMANDORCONTROL', platformControl)
+    .replace('COMMAND_OR_CONTROL', platformControl)
     .replace('CONTROL', 'CTRL')
     .replace('COMMAND', 'META')
     .replace('CMD', 'META')
     .replace('OPTION', 'ALT')
-    .replace(' ', 'SPACE');
+    .replace(/\s+/g, 'SPACE');
 }
 
 export function normalizeShortcut(shortcut: string) {
