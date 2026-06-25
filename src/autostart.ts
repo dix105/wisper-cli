@@ -1,5 +1,5 @@
 import { mkdir, writeFile } from 'node:fs/promises';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -16,6 +16,13 @@ function currentCliCommand() {
 
 function quote(value: string) {
   return `"${value.replaceAll('"', '\\"')}"`;
+}
+
+export function startListenerNow(): AutostartResult {
+  const command = currentCliCommand();
+  const child = spawn(command.executable, command.args, { detached: true, stdio: 'ignore' });
+  child.unref();
+  return { enabled: true, message: 'Wisper listener started in background.' };
 }
 
 export async function enableAutostart(): Promise<AutostartResult> {

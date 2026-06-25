@@ -4,7 +4,7 @@ import { startWebApp } from './server.js';
 import { openUrl } from './open.js';
 import { defaultShortcut, loadConfig, modelOptions, providers, updateConfig, type ModelOption, type Provider } from './config.js';
 import { createPrompt } from './prompt.js';
-import { enableAutostart } from './autostart.js';
+import { enableAutostart, startListenerNow } from './autostart.js';
 import { verifyProviderKey } from './verify.js';
 
 const [command, ...args] = process.argv.slice(2);
@@ -90,6 +90,8 @@ async function setup() {
       await updateConfig({ autostart: false });
       console.log('Autostart skipped.');
     }
+    const listener = startListenerNow();
+    console.log(listener.message);
   } finally {
     prompt.close();
   }
@@ -155,7 +157,7 @@ async function listen() {
   console.log(`Provider: ${config.provider || 'not set'}`);
   console.log(`Model: ${config.model || 'not set'}`);
   console.log(`Shortcut: ${config.shortcut || defaultShortcut}`);
-  console.log('Recording/hotkey engine will attach here next. Press Ctrl+C to stop.');
+  console.log('Waiting for shortcut. Recording/hotkey engine is the next implementation step. Press Ctrl+C to stop.');
   await new Promise(() => undefined);
 }
 
