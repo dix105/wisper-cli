@@ -2,7 +2,19 @@
 
 ## Install without Git
 
-If you have Node.js/npm installed, run:
+### Windows PowerShell
+
+```powershell
+iwr -useb https://raw.githubusercontent.com/dix105/wisper-cli/master/install.ps1 | iex
+```
+
+Then:
+
+```powershell
+wisper setup
+```
+
+### macOS / Linux
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/dix105/wisper-cli/master/install.sh | bash
@@ -14,7 +26,7 @@ Then:
 wisper setup
 ```
 
-The installer downloads the repo, builds it, and links `wisper` into `~/.local/bin`.
+The installer downloads the repo, builds it, and links `wisper` into your user bin directory.
 
 
 Clean CLI-first base for a Wispr Flow-style dictation tool.
