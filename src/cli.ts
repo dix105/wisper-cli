@@ -2,9 +2,10 @@
 import { loadHistory, saveTranscript } from './storage.js';
 import { startWebApp } from './server.js';
 import { openUrl } from './open.js';
-import { defaultShortcut, loadConfig, providers, updateConfig, type Provider } from './config.js';
+import { defaultShortcut, loadConfig, modelOptions, providers, updateConfig, type ModelOption, type Provider } from './config.js';
 import { createPrompt } from './prompt.js';
 import { enableAutostart } from './autostart.js';
+import { verifyProviderKey } from './verify.js';
 
 const [command, ...args] = process.argv.slice(2);
 
@@ -78,11 +79,17 @@ async function setup() {
   console.log('Wisper setup');
   const prompt = createPrompt();
   try {
-    await selectProvider(prompt);
+    await selectModel(prompt);
     await setShortcut(true, prompt);
-    const result = await enableAutostart();
-    await updateConfig({ autostart: result.enabled });
-    console.log(result.message);
+    const wantsAutostart = await prompt.confirm('Start Wisper automatically on computer startup?', true);
+    if (wantsAutostart) {
+      const result = await enableAutostart();
+      await updateConfig({ autostart: result.enabled });
+      console.log(result.message);
+    } else {
+      await updateConfig({ autostart: false });
+      console.log('Autostart skipped.');
+    }
   } finally {
     prompt.close();
   }
@@ -91,10 +98,31 @@ async function setup() {
 
 async function selectProvider(prompt = createPrompt()) {
   try {
-    const provider = await prompt.choose('Select transcription provider:', providers) as Provider;
-    const key = await prompt.ask(`Paste ${provider} API key, or press Enter to skip: `);
+    const provider = await prompt.choose('Select provider:', providers) as Provider;
+    const key = await prompt.ask(`Paste ${provider} API key: `);
+    const verification = await verifyProviderKey(provider, key);
+    console.log(verification.message);
     await updateConfig({ provider, keys: key ? { [provider]: key } : undefined });
     console.log(`Provider set to ${provider}.`);
+  } finally {
+    if (arguments.length === 0) prompt.close();
+  }
+}
+
+async function selectModel(prompt = createPrompt()) {
+  try {
+    const labels = modelOptions.map((option) => option.label);
+    const label = await prompt.choose('Select model:', labels);
+    const option = modelOptions.find((candidate) => candidate.label === label) as ModelOption;
+    const key = await prompt.ask(`Paste ${option.provider} API key: `);
+    const verification = await verifyProviderKey(option.provider, key);
+    console.log(verification.message);
+    await updateConfig({
+      provider: option.provider,
+      model: option.model,
+      keys: key ? { [option.provider]: key } : undefined
+    });
+    console.log(`Model set to ${option.label}.`);
   } finally {
     if (arguments.length === 0) prompt.close();
   }
@@ -115,6 +143,7 @@ async function showStatus() {
   const config = await loadConfig();
   console.log('Current setup:');
   console.log(`  Provider: ${config.provider || 'not set'}`);
+  console.log(`  Model: ${config.model || 'not set'}`);
   console.log(`  Shortcut: ${config.shortcut || 'not set'}`);
   console.log(`  API key: ${config.provider && config.keys?.[config.provider] ? 'saved' : 'not set'}`);
   console.log(`  Autostart: ${config.autostart ? 'enabled' : 'not enabled'}`);
@@ -124,6 +153,7 @@ async function listen() {
   const config = await loadConfig();
   console.log('Wisper listener running.');
   console.log(`Provider: ${config.provider || 'not set'}`);
+  console.log(`Model: ${config.model || 'not set'}`);
   console.log(`Shortcut: ${config.shortcut || defaultShortcut}`);
   console.log('Recording/hotkey engine will attach here next. Press Ctrl+C to stop.');
   await new Promise(() => undefined);

@@ -4,8 +4,16 @@ import { homedir } from 'node:os';
 
 export type Provider = 'groq' | 'elevenlabs' | 'sarvam';
 
+export type ModelOption = {
+  id: string;
+  label: string;
+  provider: Provider;
+  model: string;
+};
+
 export type Config = {
   provider?: Provider;
+  model?: string;
   shortcut?: string;
   keys?: Partial<Record<Provider, string>>;
   autostart?: boolean;
@@ -13,6 +21,12 @@ export type Config = {
 
 const dataDir = join(homedir(), '.wisper-cli');
 const configFile = join(dataDir, 'config.json');
+
+export const modelOptions: ModelOption[] = [
+  { id: 'groq-whisper', label: 'Groq Whisper Large v3 Turbo', provider: 'groq', model: 'whisper-large-v3-turbo' },
+  { id: 'elevenlabs-scribe', label: 'ElevenLabs Scribe v2', provider: 'elevenlabs', model: 'scribe_v2' },
+  { id: 'sarvam-saarika', label: 'Sarvam Saarika', provider: 'sarvam', model: 'saarika:v2' }
+];
 
 export const providers: Provider[] = ['groq', 'elevenlabs', 'sarvam'];
 export const defaultShortcut = 'Ctrl+Alt+Space';

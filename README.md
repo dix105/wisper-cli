@@ -10,12 +10,12 @@ Start with one command:
 wisper setup
 ```
 
-It asks you to choose provider from a menu, paste key if you want, set shortcut, and enables startup automatically for the background listener.
+It asks you to choose model from a menu, paste API key, verifies it, asks shortcut, then asks whether to enable startup automatically.
 
 Useful commands:
 
 ```bash
-wisper provider   # choose provider from menu
+wisper provider   # choose provider from menu + verify key
 wisper shortcut   # set shortcut
 wisper status     # show current setup
 wisper listen     # run background listener

@@ -5,8 +5,14 @@ import { readFileSync } from 'node:fs';
 export type Prompt = {
   ask(question: string): Promise<string>;
   choose(label: string, options: string[]): Promise<string>;
+  confirm(question: string, defaultValue?: boolean): Promise<boolean>;
   close(): void;
 };
+
+function parseYesNo(value: string, defaultValue = false) {
+  if (!value) return defaultValue;
+  return ['y', 'yes', '1', 'true'].includes(value.toLowerCase());
+}
 
 export function createPrompt(): Prompt {
   if (!input.isTTY) {
@@ -26,6 +32,10 @@ export function createPrompt(): Prompt {
         if (!options[choice]) throw new Error('Invalid choice');
         return options[choice];
       },
+      async confirm(question: string, defaultValue = false) {
+        output.write(`${question} ${defaultValue ? '[Y/n]' : '[y/N]'}: `);
+        return parseYesNo(next(), defaultValue);
+      },
       close() {}
     };
   }
@@ -42,6 +52,10 @@ export function createPrompt(): Prompt {
       const index = Number(answer.trim()) - 1;
       if (!options[index]) throw new Error('Invalid choice');
       return options[index];
+    },
+    async confirm(question: string, defaultValue = false) {
+      const answer = await rl.question(`${question} ${defaultValue ? '[Y/n]' : '[y/N]'}: `);
+      return parseYesNo(answer.trim(), defaultValue);
     },
     close() {
       rl.close();
