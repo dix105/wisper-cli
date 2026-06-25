@@ -1,0 +1,39 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Wisper CLI</title>
+    <style>
+      body { font-family: Inter, system-ui, sans-serif; margin: 0; background: #f7f7f5; color: #171717; }
+      main { max-width: 880px; margin: 48px auto; padding: 0 20px; }
+      .card { background: white; border: 1px solid #e7e5e4; border-radius: 18px; padding: 22px; box-shadow: 0 20px 60px rgba(0,0,0,.06); }
+      h1 { margin: 0 0 8px; font-size: 34px; }
+      p { color: #666; }
+      .item { padding: 14px 0; border-top: 1px solid #eee; }
+      .meta { color: #888; font-size: 13px; margin-bottom: 6px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="card">
+        <h1>Wisper CLI</h1>
+        <p>Base local dashboard for transcript history. No meeting mode.</p>
+        <section id="history"></section>
+      </div>
+    </main>
+    <script>
+      async function load() {
+        const history = await fetch('/api/history').then(r => r.json());
+        const root = document.querySelector('#history');
+        root.innerHTML = history.length ? history.map(item => `
+          <div class="item">
+            <div class="meta">${item.createdAt} · ${item.source || 'manual'}</div>
+            <div>${item.text}</div>
+          </div>
+        `).join('') : '<p>No transcripts yet. Try: <code>wisper add "hello"</code></p>';
+      }
+      load();
+    </script>
+  </body>
+</html>
