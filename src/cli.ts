@@ -4,6 +4,7 @@ import { startWebApp } from './server.js';
 import { openUrl } from './open.js';
 import { defaultShortcut, loadConfig, providers, updateConfig, type Provider } from './config.js';
 import { createPrompt } from './prompt.js';
+import { enableAutostart } from './autostart.js';
 
 const [command, ...args] = process.argv.slice(2);
 
@@ -24,6 +25,9 @@ async function main() {
       break;
     case 'status':
       await showStatus();
+      break;
+    case 'listen':
+      await listen();
       break;
     case 'history': {
       const history = await loadHistory();
@@ -61,6 +65,7 @@ Commands:
   wisper provider         Pick provider from a menu
   wisper shortcut         Set shortcut from a prompt
   wisper status           Show current setup
+  wisper listen           Run background listener
   wisper app              Open local web app
   wisper open             Alias for app
   wisper history [limit]  Print transcript history
@@ -75,6 +80,9 @@ async function setup() {
   try {
     await selectProvider(prompt);
     await setShortcut(true, prompt);
+    const result = await enableAutostart();
+    await updateConfig({ autostart: result.enabled });
+    console.log(result.message);
   } finally {
     prompt.close();
   }
@@ -109,6 +117,16 @@ async function showStatus() {
   console.log(`  Provider: ${config.provider || 'not set'}`);
   console.log(`  Shortcut: ${config.shortcut || 'not set'}`);
   console.log(`  API key: ${config.provider && config.keys?.[config.provider] ? 'saved' : 'not set'}`);
+  console.log(`  Autostart: ${config.autostart ? 'enabled' : 'not enabled'}`);
+}
+
+async function listen() {
+  const config = await loadConfig();
+  console.log('Wisper listener running.');
+  console.log(`Provider: ${config.provider || 'not set'}`);
+  console.log(`Shortcut: ${config.shortcut || defaultShortcut}`);
+  console.log('Recording/hotkey engine will attach here next. Press Ctrl+C to stop.');
+  await new Promise(() => undefined);
 }
 
 main().catch((error) => {

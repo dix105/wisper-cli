@@ -8,6 +8,7 @@ export type Config = {
   provider?: Provider;
   shortcut?: string;
   keys?: Partial<Record<Provider, string>>;
+  autostart?: boolean;
 };
 
 const dataDir = join(homedir(), '.wisper-cli');

@@ -10,7 +10,7 @@ Start with one command:
 wisper setup
 ```
 
-It asks you to choose provider from a menu, paste key if you want, and set shortcut.
+It asks you to choose provider from a menu, paste key if you want, set shortcut, and enables startup automatically for the background listener.
 
 Useful commands:
 
@@ -18,6 +18,7 @@ Useful commands:
 wisper provider   # choose provider from menu
 wisper shortcut   # set shortcut
 wisper status     # show current setup
+wisper listen     # run background listener
 wisper open       # open local web app
 ```
 
@@ -29,6 +30,8 @@ wisper open       # open local web app
 - `wisper provider` to choose provider from a menu
 - `wisper shortcut` to set shortcut from a prompt
 - `wisper status` to show current setup
+- `wisper listen` background listener target
+- automatic startup after `wisper setup`
 - `wisper history` to print transcript history
 - `wisper add "text"` to save a manual transcript while the base is being built
 - `wisper app` / `wisper open` to launch a local web dashboard
