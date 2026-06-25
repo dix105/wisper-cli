@@ -2,10 +2,33 @@
 
 Clean CLI-first base for a Wispr Flow-style dictation tool.
 
+## Simple UX
+
+Start with one command:
+
+```bash
+wisper setup
+```
+
+It asks you to choose provider from a menu, paste key if you want, and set shortcut.
+
+Useful commands:
+
+```bash
+wisper provider   # choose provider from menu
+wisper shortcut   # set shortcut
+wisper status     # show current setup
+wisper open       # open local web app
+```
+
 ## Base features
 
 - CLI entrypoint: `wisper`
 - Local transcript storage in `~/.wisper-cli/history.json`
+- `wisper setup` for simple first-time setup
+- `wisper provider` to choose provider from a menu
+- `wisper shortcut` to set shortcut from a prompt
+- `wisper status` to show current setup
 - `wisper history` to print transcript history
 - `wisper add "text"` to save a manual transcript while the base is being built
 - `wisper app` / `wisper open` to launch a local web dashboard

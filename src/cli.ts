@@ -2,6 +2,8 @@
 import { loadHistory, saveTranscript } from './storage.js';
 import { startWebApp } from './server.js';
 import { openUrl } from './open.js';
+import { defaultShortcut, loadConfig, providers, updateConfig, type Provider } from './config.js';
+import { createPrompt } from './prompt.js';
 
 const [command, ...args] = process.argv.slice(2);
 
@@ -10,6 +12,18 @@ async function main() {
     case undefined:
     case 'help':
       printHelp();
+      break;
+    case 'setup':
+      await setup();
+      break;
+    case 'provider':
+      await selectProvider();
+      break;
+    case 'shortcut':
+      await setShortcut();
+      break;
+    case 'status':
+      await showStatus();
       break;
     case 'history': {
       const history = await loadHistory();
@@ -43,12 +57,58 @@ function printHelp() {
   console.log(`wisper-cli
 
 Commands:
+  wisper setup            Simple first-time setup
+  wisper provider         Pick provider from a menu
+  wisper shortcut         Set shortcut from a prompt
+  wisper status           Show current setup
   wisper app              Open local web app
   wisper open             Alias for app
   wisper history [limit]  Print transcript history
   wisper add "text"       Save a manual transcript
   wisper help             Show help
 `);
+}
+
+async function setup() {
+  console.log('Wisper setup');
+  const prompt = createPrompt();
+  try {
+    await selectProvider(prompt);
+    await setShortcut(true, prompt);
+  } finally {
+    prompt.close();
+  }
+  await showStatus();
+}
+
+async function selectProvider(prompt = createPrompt()) {
+  try {
+    const provider = await prompt.choose('Select transcription provider:', providers) as Provider;
+    const key = await prompt.ask(`Paste ${provider} API key, or press Enter to skip: `);
+    await updateConfig({ provider, keys: key ? { [provider]: key } : undefined });
+    console.log(`Provider set to ${provider}.`);
+  } finally {
+    if (arguments.length === 0) prompt.close();
+  }
+}
+
+async function setShortcut(allowDefault = false, prompt = createPrompt()) {
+  try {
+    const answer = await prompt.ask(`Shortcut${allowDefault ? ` [${defaultShortcut}]` : ''}: `);
+    const shortcut = answer || defaultShortcut;
+    await updateConfig({ shortcut });
+    console.log(`Shortcut set to ${shortcut}.`);
+  } finally {
+    if (arguments.length < 2) prompt.close();
+  }
+}
+
+async function showStatus() {
+  const config = await loadConfig();
+  console.log('Current setup:');
+  console.log(`  Provider: ${config.provider || 'not set'}`);
+  console.log(`  Shortcut: ${config.shortcut || 'not set'}`);
+  console.log(`  API key: ${config.provider && config.keys?.[config.provider] ? 'saved' : 'not set'}`);
 }
 
 main().catch((error) => {
