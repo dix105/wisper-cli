@@ -12,7 +12,11 @@
     "start": "node dist/cli.js",
     "check": "tsc --noEmit"
   },
-  "dependencies": {},
+  "dependencies": {
+    "clipboardy": "^5.3.1",
+    "mic": "^2.1.2",
+    "node-global-key-listener": "^0.3.0"
+  },
   "devDependencies": {
     "@types/node": "latest",
     "tsx": "latest",

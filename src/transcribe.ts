@@ -1,0 +1,70 @@
+import { readFile } from 'node:fs/promises';
+import { basename } from 'node:path';
+import type { Config } from './config.js';
+
+export async function transcribeFile(file: string, config: Config): Promise<string> {
+  if (!config.provider) throw new Error('No provider configured. Run wisper setup.');
+  const key = config.keys?.[config.provider];
+  if (!key) throw new Error(`No API key saved for ${config.provider}. Run wisper setup.`);
+
+  if (config.provider === 'groq') return transcribeGroq(file, key, config.model || 'whisper-large-v3-turbo');
+  if (config.provider === 'elevenlabs') return transcribeElevenLabs(file, key, config.model || 'scribe_v2');
+  if (config.provider === 'sarvam') return transcribeSarvam(file, key, config.model || 'saarika:v2');
+  throw new Error('Unsupported provider');
+}
+
+async function audioForm(file: string) {
+  const bytes = await readFile(file);
+  const blob = new Blob([bytes], { type: 'audio/wav' });
+  return { blob, name: basename(file) };
+}
+
+async function transcribeGroq(file: string, key: string, model: string) {
+  const { blob, name } = await audioForm(file);
+  const form = new FormData();
+  form.set('file', blob, name);
+  form.set('model', model);
+  form.set('response_format', 'json');
+
+  const response = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+    method: 'POST',
+    headers: { authorization: `Bearer ${key}` },
+    body: form
+  });
+  const body = await response.json().catch(() => ({})) as { text?: string; error?: { message?: string } };
+  if (!response.ok) throw new Error(body.error?.message || `Groq transcription failed: HTTP ${response.status}`);
+  return (body.text || '').trim();
+}
+
+async function transcribeElevenLabs(file: string, key: string, model: string) {
+  const { blob, name } = await audioForm(file);
+  const form = new FormData();
+  form.set('file', blob, name);
+  form.set('model_id', model);
+
+  const response = await fetch('https://api.elevenlabs.io/v1/speech-to-text', {
+    method: 'POST',
+    headers: { 'xi-api-key': key },
+    body: form
+  });
+  const body = await response.json().catch(() => ({})) as { text?: string; detail?: string };
+  if (!response.ok) throw new Error(body.detail || `ElevenLabs transcription failed: HTTP ${response.status}`);
+  return (body.text || '').trim();
+}
+
+async function transcribeSarvam(file: string, key: string, model: string) {
+  const { blob, name } = await audioForm(file);
+  const form = new FormData();
+  form.set('file', blob, name);
+  form.set('model', model);
+  form.set('language_code', 'unknown');
+
+  const response = await fetch('https://api.sarvam.ai/speech-to-text', {
+    method: 'POST',
+    headers: { 'api-subscription-key': key },
+    body: form
+  });
+  const body = await response.json().catch(() => ({})) as { transcript?: string; text?: string; error?: { message?: string } };
+  if (!response.ok) throw new Error(body.error?.message || `Sarvam transcription failed: HTTP ${response.status}`);
+  return (body.transcript || body.text || '').trim();
+}

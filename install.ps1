@@ -16,6 +16,11 @@ function Need($Command, $InstallHint) {
 Need "node" "Install Node.js from https://nodejs.org, then reopen terminal."
 Need "npm" "Install Node.js from https://nodejs.org, then reopen terminal."
 
+if (-not (Get-Command "sox" -ErrorAction SilentlyContinue)) {
+  Write-Host "Warning: SoX is recommended for microphone recording."
+  Write-Host "Install with: winget install ChrisBagwell.SoX"
+}
+
 New-Item -ItemType Directory -Force -Path $TmpDir, $BinDir | Out-Null
 
 try {

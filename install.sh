@@ -25,6 +25,12 @@ need npm
 need curl
 need tar
 
+if ! command -v sox >/dev/null 2>&1 && ! command -v rec >/dev/null 2>&1; then
+  echo "Warning: SoX is recommended for microphone recording."
+  echo "macOS: brew install sox"
+  echo "Linux: sudo apt install sox"
+fi
+
 mkdir -p "$INSTALL_DIR" "$BIN_DIR"
 
 echo "Downloading Wisper CLI..."

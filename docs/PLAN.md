@@ -34,31 +34,32 @@ After setup:
 
 ## Milestone 2 — Windows global shortcut
 
-- Implement Windows global hotkey first.
-- Normalize shortcut strings like `Ctrl+Alt+Space`.
-- Register shortcut in background listener.
-- On key press, toggle recording state.
-- Print/log clear states: `idle`, `recording`, `transcribing`, `done`, `error`.
+- Implement Windows/macOS global hotkey via `node-global-key-listener`. ✅
+- Normalize shortcut strings like `Ctrl+Alt+Space`. ✅
+- Register shortcut in background listener. ✅
+- On key press, toggle recording state. ✅
+- Print/log clear states: `recording`, `transcribing`, `done`, `error`. ✅
 
 ## Milestone 3 — microphone recording
 
-- Request/use microphone from listener process.
-- Save temporary WAV/WEBM file under `~/.wisper-cli/tmp`.
-- Recording mode: press once start, press again stop.
+- Request/use microphone from listener process via SoX-backed recorder. ✅
+- Save temporary WAV under `~/.wisper-cli/tmp`. ✅
+- Recording mode: press once start, press again stop. ✅
 - Add fallback command: `wisper record` for debugging without hotkey.
 
 ## Milestone 4 — transcription providers
 
-- Implement provider interface.
-- Groq first: `whisper-large-v3-turbo`.
-- ElevenLabs second: `scribe_v2`.
-- Sarvam third.
-- Add `wisper transcribe <file>`.
-- Save transcript to history.
+- Implement provider interface. ✅
+- Groq first: `whisper-large-v3-turbo`. ✅
+- ElevenLabs second: `scribe_v2`. ✅
+- Sarvam third. ✅
+- Add `wisper transcribe <file>`. ✅
+- Save transcript to history. ✅
 
 ## Milestone 5 — paste into active app
 
-- Windows paste first: write transcript to clipboard, send Ctrl+V.
+- Windows paste first: write transcript to clipboard, send Ctrl+V. ✅
+- macOS paste: clipboard + Command+V via System Events. ✅
 - Add setting to only print/save instead of paste.
 - Add error recovery: if paste fails, transcript remains in history.
 

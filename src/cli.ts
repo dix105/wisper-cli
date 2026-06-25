@@ -6,6 +6,10 @@ import { defaultShortcut, loadConfig, modelOptions, providers, updateConfig, typ
 import { createPrompt } from './prompt.js';
 import { enableAutostart, startListenerNow } from './autostart.js';
 import { verifyProviderKey } from './verify.js';
+import { isRecording, startRecording, stopRecording } from './audio.js';
+import { listenForShortcut } from './hotkey.js';
+import { pasteIntoActiveApp } from './paste.js';
+import { transcribeFile } from './transcribe.js';
 
 const [command, ...args] = process.argv.slice(2);
 
@@ -30,6 +34,15 @@ async function main() {
     case 'listen':
       await listen();
       break;
+    case 'transcribe': {
+      const file = args[0];
+      if (!file) throw new Error('Usage: wisper transcribe <audio-file>');
+      const config = await loadConfig();
+      const text = await transcribeFile(file, config);
+      await saveTranscript(text, file);
+      console.log(text);
+      break;
+    }
     case 'history': {
       const history = await loadHistory();
       if (!history.length) return console.log('No transcripts yet.');
@@ -67,6 +80,7 @@ Commands:
   wisper shortcut         Set shortcut from a prompt
   wisper status           Show current setup
   wisper listen           Run background listener
+  wisper transcribe <file> Transcribe an audio file
   wisper app              Open local web app
   wisper open             Alias for app
   wisper history [limit]  Print transcript history
@@ -153,11 +167,43 @@ async function showStatus() {
 
 async function listen() {
   const config = await loadConfig();
+  const shortcut = config.shortcut || defaultShortcut;
+  let busy = false;
+
   console.log('Wisper listener running.');
   console.log(`Provider: ${config.provider || 'not set'}`);
   console.log(`Model: ${config.model || 'not set'}`);
-  console.log(`Shortcut: ${config.shortcut || defaultShortcut}`);
-  console.log('Waiting for shortcut. Recording/hotkey engine is the next implementation step. Press Ctrl+C to stop.');
+  console.log(`Shortcut: ${shortcut}`);
+  console.log('Press shortcut once to start recording, again to stop. Press Ctrl+C to stop listener.');
+
+  listenForShortcut(shortcut, () => {
+    void handleShortcutPress().catch((error) => console.error(`Error: ${error.message}`));
+  });
+
+  async function handleShortcutPress() {
+    if (busy) return;
+    if (!isRecording()) {
+      console.log('Recording... press shortcut again to stop.');
+      await startRecording();
+      return;
+    }
+
+    busy = true;
+    try {
+      console.log('Stopping recording...');
+      const recording = await stopRecording();
+      console.log(`Transcribing ${Math.round(recording.durationMs / 1000)}s audio...`);
+      const latestConfig = await loadConfig();
+      const text = await transcribeFile(recording.file, latestConfig);
+      if (!text) throw new Error('Empty transcript returned.');
+      await saveTranscript(text, recording.file);
+      await pasteIntoActiveApp(text);
+      console.log(`Inserted: ${text}`);
+    } finally {
+      busy = false;
+    }
+  }
+
   await new Promise(() => undefined);
 }
 
