@@ -44,7 +44,9 @@ try {
   Push-Location $StageDir
   try {
     Write-Host "Installing dependencies..."
-    npm install --silent
+    $env:NODE_ENV = "development"
+    $env:npm_config_production = "false"
+    npm install --include=dev --silent
 
     Write-Host "Building CLI..."
     npm run build --silent

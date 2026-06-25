@@ -42,7 +42,9 @@ mv "$TMP_DIR/wisper-cli-master" "$INSTALL_DIR"
 
 cd "$INSTALL_DIR"
 echo "Installing dependencies..."
-npm install --silent
+export NODE_ENV=development
+export npm_config_production=false
+npm install --include=dev --silent
 
 echo "Building CLI..."
 npm run build --silent
