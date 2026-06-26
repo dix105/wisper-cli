@@ -1,29 +1,25 @@
-import { createWriteStream } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
+import { spawn, type ChildProcess } from 'node:child_process';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
-import { createRequire } from 'node:module';
 
-const require = createRequire(import.meta.url);
-const mic = require('mic') as (options: Record<string, unknown>) => MicInstance;
-
-type MicInstance = {
-  getAudioStream(): NodeJS.ReadableStream;
-  start(): void;
-  stop(): void;
-};
+const activeSignals = ['SIGINT', 'SIGTERM'] as const;
 
 type ActiveRecording = {
-  instance: MicInstance;
+  process: ChildProcess;
   file: string;
   startedAt: number;
-  done: Promise<string>;
+  done: Promise<void>;
 };
 
 let active: ActiveRecording | undefined;
 
 export function isRecording() {
   return Boolean(active);
+}
+
+function soxCommand() {
+  return process.platform === 'win32' ? 'sox.exe' : 'sox';
 }
 
 export async function startRecording(): Promise<string> {
@@ -33,26 +29,27 @@ export async function startRecording(): Promise<string> {
   await mkdir(dir, { recursive: true });
   const file = join(dir, `recording-${Date.now()}.wav`);
 
-  const instance = mic({
-    rate: '16000',
-    channels: '1',
-    debug: false,
-    exitOnSilence: 0,
-    fileType: 'wav'
+  const child = spawn(soxCommand(), ['-d', '-r', '16000', '-c', '1', '-b', '16', file], {
+    windowsHide: true,
+    stdio: ['ignore', 'pipe', 'pipe']
   });
 
-  const stream = instance.getAudioStream();
-  const output = createWriteStream(file);
-  stream.pipe(output);
+  let stderr = '';
+  child.stderr.setEncoding('utf8');
+  child.stderr.on('data', (chunk) => { stderr += chunk; });
 
-  const done = new Promise<string>((resolve, reject) => {
-    stream.once('error', reject);
-    output.once('error', reject);
-    output.once('finish', () => resolve(file));
+  const done = new Promise<void>((resolve, reject) => {
+    child.once('error', reject);
+    child.once('close', (code) => {
+      if (code === 0 || code === null || activeSignals.includes((child.signalCode || '') as typeof activeSignals[number])) {
+        resolve();
+        return;
+      }
+      reject(new Error(stderr.trim() || `SoX exited with code ${code}`));
+    });
   });
 
-  active = { instance, file, startedAt: Date.now(), done };
-  instance.start();
+  active = { process: child, file, startedAt: Date.now(), done };
   return file;
 }
 
@@ -61,7 +58,13 @@ export async function stopRecording(): Promise<{ file: string; durationMs: numbe
 
   const current = active;
   active = undefined;
-  current.instance.stop();
-  const file = await current.done;
-  return { file, durationMs: Date.now() - current.startedAt };
+
+  if (process.platform === 'win32') {
+    spawn('taskkill.exe', ['/PID', String(current.process.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });
+  } else {
+    current.process.kill('SIGINT');
+  }
+
+  await current.done.catch(() => undefined);
+  return { file: current.file, durationMs: Date.now() - current.startedAt };
 }
