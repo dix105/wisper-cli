@@ -1,5 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { createRequire } from 'node:module';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { log } from './log.js';
 
 const require = createRequire(import.meta.url);
@@ -150,6 +152,42 @@ try {
   return () => child.kill();
 }
 
+
+function macKeyCode(key: string) {
+  const letters: Record<string, number> = {
+    A: 0, S: 1, D: 2, F: 3, H: 4, G: 5, Z: 6, X: 7, C: 8, V: 9, B: 11, Q: 12, W: 13, E: 14, R: 15, Y: 16, T: 17,
+    O: 31, U: 32, I: 34, P: 35, L: 37, J: 38, K: 40, N: 45, M: 46
+  };
+  const digits: Record<string, number> = { '1': 18, '2': 19, '3': 20, '4': 21, '6': 22, '5': 23, '9': 25, '7': 26, '8': 28, '0': 29 };
+  const specials: Record<string, number> = { SPACE: 49, TAB: 48, ENTER: 36, RETURN: 36, ESC: 53, ESCAPE: 53, F1: 122, F2: 120, F3: 99, F4: 118, F5: 96, F6: 97, F7: 98, F8: 100, F9: 101, F10: 109, F11: 103, F12: 111 };
+  if (letters[key] !== undefined) return letters[key];
+  if (digits[key] !== undefined) return digits[key];
+  if (specials[key] !== undefined) return specials[key];
+  throw new Error(`Unsupported macOS shortcut key: ${key}`);
+}
+
+function listenForMacHotkey(shortcut: string, onPress: (event?: 'down' | 'up') => void) {
+  const parsed = parseShortcut(shortcut);
+  const helper = join(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'mac-hotkey.swift');
+  const child = spawn('swift', [helper, String(macKeyCode(parsed.key)), parsed.meta ? '1' : '0', parsed.alt ? '1' : '0', parsed.shift ? '1' : '0', parsed.ctrl ? '1' : '0']);
+
+  child.stdout.setEncoding('utf8');
+  child.stdout.on('data', (chunk: string) => {
+    for (const line of chunk.split(/\r?\n/)) {
+      if (line.trim() === 'REGISTERED') void log(`Shortcut registered: ${shortcut}`);
+      if (line.trim() === 'HOTKEY_DOWN') onPress('down');
+      if (line.trim() === 'HOTKEY_UP') onPress('up');
+    }
+  });
+
+  child.stderr.setEncoding('utf8');
+  child.stderr.on('data', (chunk: string) => {
+    if (chunk.includes('REGISTER_FAILED')) void log(`Could not register shortcut ${shortcut}. Give Terminal/iTerm Accessibility permission in macOS settings.`);
+  });
+
+  return () => child.kill();
+}
+
 function listenForKeyboardEvents(shortcut: string, onPress: (event?: 'down' | 'up') => void) {
   const { GlobalKeyboardListener } = require('node-global-key-listener') as {
     GlobalKeyboardListener: new () => {
@@ -182,5 +220,6 @@ function listenForKeyboardEvents(shortcut: string, onPress: (event?: 'down' | 'u
 
 export function listenForShortcut(shortcut: string, onPress: (event?: 'down' | 'up') => void) {
   if (process.platform === 'win32') return listenForWindowsHotkey(shortcut, onPress);
+  if (process.platform === 'darwin') return listenForMacHotkey(shortcut, onPress);
   return listenForKeyboardEvents(shortcut, onPress);
 }
