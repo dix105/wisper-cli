@@ -22,6 +22,14 @@ function soxCommand() {
   return process.platform === 'win32' ? 'sox.exe' : 'sox';
 }
 
+function soxRecordArgs(file: string) {
+  if (process.platform === 'win32') {
+    return ['-t', 'waveaudio', 'default', '-r', '16000', '-c', '1', '-b', '16', file];
+  }
+
+  return ['-d', '-r', '16000', '-c', '1', '-b', '16', file];
+}
+
 export async function startRecording(): Promise<string> {
   if (active) throw new Error('Recording already active');
 
@@ -29,9 +37,9 @@ export async function startRecording(): Promise<string> {
   await mkdir(dir, { recursive: true });
   const file = join(dir, `recording-${Date.now()}.wav`);
 
-  const child = spawn(soxCommand(), ['-d', '-r', '16000', '-c', '1', '-b', '16', file], {
+  const child = spawn(soxCommand(), soxRecordArgs(file), {
     windowsHide: true,
-    stdio: ['ignore', 'pipe', 'pipe']
+    stdio: ['pipe', 'pipe', 'pipe']
   });
 
   let stderr = '';
@@ -59,12 +67,21 @@ export async function stopRecording(): Promise<{ file: string; durationMs: numbe
   const current = active;
   active = undefined;
 
-  if (process.platform === 'win32') {
-    spawn('taskkill.exe', ['/PID', String(current.process.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });
-  } else {
-    current.process.kill('SIGINT');
-  }
+  current.process.stdin?.write('q');
+  current.process.stdin?.end();
 
-  await current.done.catch(() => undefined);
+  await Promise.race([
+    current.done.catch(() => undefined),
+    new Promise((resolve) => setTimeout(resolve, 1200))
+  ]);
+
+  if (!current.process.killed && current.process.exitCode === null) {
+    if (process.platform === 'win32') {
+      spawn('taskkill.exe', ['/PID', String(current.process.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });
+    } else {
+      current.process.kill('SIGINT');
+    }
+    await current.done.catch(() => undefined);
+  }
   return { file: current.file, durationMs: Date.now() - current.startedAt };
 }
