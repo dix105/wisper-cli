@@ -25,8 +25,15 @@ Need "node" "Install Node.js from https://nodejs.org, then reopen terminal."
 Need "npm" "Install Node.js from https://nodejs.org, then reopen terminal."
 
 if (-not (Get-Command "sox" -ErrorAction SilentlyContinue)) {
-  Write-Host "Warning: SoX is recommended for microphone recording."
-  Write-Host "Install with: winget install ChrisBagwell.SoX"
+  Write-Host "SoX is required for microphone recording. Trying to install with winget..."
+  if (Get-Command "winget" -ErrorAction SilentlyContinue) {
+    & winget install --id ChrisBagwell.SoX --source winget --accept-package-agreements --accept-source-agreements
+    if ($LASTEXITCODE -ne 0) {
+      Write-Host "Automatic SoX install failed. Run manually: winget install ChrisBagwell.SoX"
+    }
+  } else {
+    Write-Host "winget not found. Install SoX manually: winget install ChrisBagwell.SoX"
+  }
 }
 
 New-Item -ItemType Directory -Force -Path $TmpDir, $BinDir, $InstallRoot | Out-Null

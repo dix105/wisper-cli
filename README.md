@@ -8,6 +8,8 @@
 iwr -useb https://raw.githubusercontent.com/dix105/wisper-cli/master/install.ps1 | iex
 ```
 
+The installer also tries to install SoX automatically with `winget` if it is missing.
+
 Then:
 
 ```powershell
