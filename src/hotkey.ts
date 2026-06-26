@@ -1,5 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { createRequire } from 'node:module';
+import { log } from './log.js';
 
 const require = createRequire(import.meta.url);
 
@@ -114,13 +115,14 @@ try {
   child.stdout.setEncoding('utf8');
   child.stdout.on('data', (chunk: string) => {
     for (const line of chunk.split(/\r?\n/)) {
+      if (line.trim() === 'REGISTERED') void log(`Shortcut registered: ${shortcut}`);
       if (line.trim() === 'HOTKEY') onPress();
     }
   });
 
   child.stderr.setEncoding('utf8');
   child.stderr.on('data', (chunk: string) => {
-    if (chunk.includes('REGISTER_FAILED')) console.error(`Could not register shortcut ${shortcut}. It may be used by another app.`);
+    if (chunk.includes('REGISTER_FAILED')) void log(`Could not register shortcut ${shortcut}. It may be used by another app. Try F12 or Ctrl+Alt+Space.`);
   });
 
   return () => child.kill();
