@@ -17,6 +17,7 @@ export type Config = {
   shortcut?: string;
   keys?: Partial<Record<Provider, string>>;
   autostart?: boolean;
+  audioDevice?: string;
 };
 
 const dataDir = join(homedir(), '.wisper-cli');

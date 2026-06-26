@@ -2,6 +2,7 @@ import { mkdir } from 'node:fs/promises';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
+import { preferredInputDevice } from './devices.js';
 
 const activeSignals = ['SIGINT', 'SIGTERM'] as const;
 
@@ -22,22 +23,22 @@ function soxCommand() {
   return process.platform === 'win32' ? 'sox.exe' : 'sox';
 }
 
-function soxRecordArgs(file: string) {
+function soxRecordArgs(file: string, audioDevice?: string) {
   if (process.platform === 'win32') {
-    return ['-t', 'waveaudio', 'default', '-r', '16000', '-c', '1', '-b', '16', file];
+    return ['-t', 'waveaudio', preferredInputDevice(audioDevice), '-r', '16000', '-c', '1', '-b', '16', file];
   }
 
   return ['-d', '-r', '16000', '-c', '1', '-b', '16', file];
 }
 
-export async function startRecording(): Promise<string> {
+export async function startRecording(audioDevice?: string): Promise<string> {
   if (active) throw new Error('Recording already active');
 
   const dir = join(homedir(), '.wisper-cli', 'tmp');
   await mkdir(dir, { recursive: true });
   const file = join(dir, `recording-${Date.now()}.wav`);
 
-  const child = spawn(soxCommand(), soxRecordArgs(file), {
+  const child = spawn(soxCommand(), soxRecordArgs(file, audioDevice), {
     windowsHide: true,
     stdio: ['pipe', 'pipe', 'pipe']
   });

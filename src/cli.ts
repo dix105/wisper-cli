@@ -11,6 +11,7 @@ import { listenForShortcut } from './hotkey.js';
 import { pasteIntoActiveApp } from './paste.js';
 import { transcribeFile } from './transcribe.js';
 import { captureShortcut } from './shortcut-capture.js';
+import { listInputDevices, preferredInputDevice } from './devices.js';
 import { log, readLogs } from './log.js';
 import { clearListenerPid, stopListener, writeListenerPid } from './process-state.js';
 
@@ -33,6 +34,9 @@ async function main() {
       break;
     case 'status':
       await showStatus();
+      break;
+    case 'mic':
+      await selectMic();
       break;
     case 'listen':
       await listen();
@@ -96,6 +100,7 @@ Commands:
   wisper provider         Pick provider from a menu
   wisper shortcut         Set shortcut from a prompt
   wisper status           Show current setup
+  wisper mic              Pick microphone device
   wisper listen           Run background listener
   wisper stop             Stop background listener
   wisper restart          Restart background listener
@@ -164,6 +169,19 @@ async function selectModel(prompt = createPrompt()) {
   }
 }
 
+async function selectMic() {
+  const prompt = createPrompt();
+  try {
+    const devices = listInputDevices();
+    if (!devices.length) throw new Error('No microphone devices found.');
+    const audioDevice = await prompt.choose('Select microphone:', devices);
+    await updateConfig({ audioDevice });
+    console.log(`Microphone set to ${audioDevice}.`);
+  } finally {
+    prompt.close();
+  }
+}
+
 async function setShortcut(allowDefault = false, prompt = createPrompt()) {
   try {
     const typed = await prompt.confirm('Capture shortcut by pressing keys now?', true);
@@ -188,6 +206,7 @@ async function showStatus() {
   console.log(`  Provider: ${config.provider || 'not set'}`);
   console.log(`  Model: ${config.model || 'not set'}`);
   console.log(`  Shortcut: ${config.shortcut || 'not set'}`);
+  console.log(`  Microphone: ${preferredInputDevice(config.audioDevice)}`);
   console.log(`  API key: ${config.provider && config.keys?.[config.provider] ? 'saved' : 'not set'}`);
   console.log(`  Autostart: ${config.autostart ? 'enabled' : 'not enabled'}`);
 }
@@ -217,8 +236,10 @@ async function listen() {
 
     if (event === 'down') {
       if (isRecording()) return;
-      await log('Shortcut held. Recording... release shortcut to stop.');
-      await startRecording();
+      const latestConfig = await loadConfig();
+      const device = preferredInputDevice(latestConfig.audioDevice);
+      await log(`Shortcut held. Recording from ${device}... release shortcut to stop.`);
+      await startRecording(device);
       return;
     }
 
@@ -229,8 +250,10 @@ async function listen() {
     }
 
     if (!isRecording()) {
-      await log('Shortcut detected. Recording... press shortcut again to stop.');
-      await startRecording();
+      const latestConfig = await loadConfig();
+      const device = preferredInputDevice(latestConfig.audioDevice);
+      await log(`Shortcut detected. Recording from ${device}... press shortcut again to stop.`);
+      await startRecording(device);
       return;
     }
     await finishRecording();
