@@ -34,6 +34,7 @@ New-Item -ItemType Directory -Force -Path $TmpDir, $BinDir, $InstallRoot | Out-N
 try {
   $ZipPath = Join-Path $TmpDir "wisper-cli.zip"
   $StageDir = Join-Path $TmpDir "stage"
+  $NpmCache = Join-Path $TmpDir "npm-cache"
 
   Write-Host "Downloading Wisper CLI..."
   Invoke-WebRequest -Uri $RepoZip -OutFile $ZipPath
@@ -53,21 +54,22 @@ try {
     Write-Host "Installing dependencies..."
     $env:NODE_ENV = "development"
     $env:npm_config_production = "false"
-    Run "npm" @("install", "--include=dev", "--production=false", "--silent")
+    $env:npm_config_cache = $NpmCache
+    Run "npm" @("install", "--include=dev", "--production=false", "--cache", $NpmCache, "--silent")
 
     if (-not (Test-Path (Join-Path $StageDir "node_modules\clipboardy"))) {
       throw "Dependency install failed: node_modules\clipboardy not found."
     }
     if (-not (Test-Path (Join-Path $StageDir "node_modules\@types\node"))) {
       Write-Host "Installing missing Node types..."
-      Run "npm" @("install", "--save-dev", "@types/node", "typescript", "--silent")
+      Run "npm" @("install", "--save-dev", "@types/node", "typescript", "--cache", $NpmCache, "--silent")
     }
 
     Write-Host "Building CLI..."
     Run "npm" @("run", "build", "--silent")
     if (-not (Test-Path (Join-Path $StageDir "dist\cli.js"))) {
       Write-Host "Local TypeScript build did not produce dist; trying npx fallback..."
-      Run "npx" @("--yes", "-p", "typescript", "-p", "@types/node", "tsc", "-p", "tsconfig.json")
+      Run "npx" @("--yes", "--cache", $NpmCache, "-p", "typescript", "-p", "@types/node", "tsc", "-p", "tsconfig.json")
     }
   } finally {
     Pop-Location

@@ -44,20 +44,21 @@ cd "$INSTALL_DIR"
 echo "Installing dependencies..."
 export NODE_ENV=development
 export npm_config_production=false
-npm install --include=dev --production=false --silent
+export npm_config_cache="$TMP_DIR/npm-cache"
+npm install --include=dev --production=false --cache "$TMP_DIR/npm-cache" --silent
 if [ ! -d "$INSTALL_DIR/node_modules/clipboardy" ]; then
   echo "Dependency install failed: node_modules/clipboardy not found" >&2
   exit 1
 fi
 if [ ! -d "$INSTALL_DIR/node_modules/@types/node" ]; then
-  npm install --save-dev @types/node typescript --silent
+  npm install --save-dev @types/node typescript --cache "$TMP_DIR/npm-cache" --silent
 fi
 
 echo "Building CLI..."
 npm run build --silent
 if [ ! -f "$INSTALL_DIR/dist/cli.js" ]; then
   echo "Local TypeScript build did not produce dist; trying npx fallback..."
-  npx --yes -p typescript -p @types/node tsc -p tsconfig.json
+  npx --yes --cache "$TMP_DIR/npm-cache" -p typescript -p @types/node tsc -p tsconfig.json
 fi
 chmod +x "$INSTALL_DIR/dist/cli.js"
 
