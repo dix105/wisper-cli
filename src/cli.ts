@@ -8,7 +8,7 @@ import { enableAutostart, startListenerNow } from './autostart.js';
 import { verifyProviderKey } from './verify.js';
 import { isRecording, startRecording, stopRecording } from './audio.js';
 import { listenForShortcut } from './hotkey.js';
-import { pasteIntoActiveApp } from './paste.js';
+import { pasteIntoActiveApp, shutdownPasteHelper } from './paste.js';
 import { transcribeFile } from './transcribe.js';
 import { captureShortcut } from './shortcut-capture.js';
 import { listInputDevices, preferredInputDevice } from './devices.js';
@@ -213,9 +213,9 @@ async function showStatus() {
 
 async function listen() {
   await writeListenerPid();
-  process.once('exit', () => { void clearListenerPid(); });
-  process.once('SIGINT', () => { void clearListenerPid(); process.exit(0); });
-  process.once('SIGTERM', () => { void clearListenerPid(); process.exit(0); });
+  process.once('exit', () => { shutdownPasteHelper(); void clearListenerPid(); });
+  process.once('SIGINT', () => { shutdownPasteHelper(); void clearListenerPid(); process.exit(0); });
+  process.once('SIGTERM', () => { shutdownPasteHelper(); void clearListenerPid(); process.exit(0); });
 
   const config = await loadConfig();
   const shortcut = config.shortcut || defaultShortcut;
