@@ -261,16 +261,32 @@ async function listen() {
 
   async function finishRecording() {
     busy = true;
+    const totalStart = Date.now();
     try {
       await log('Shortcut released. Stopping recording...');
+      const stopStart = Date.now();
       const recording = await stopRecording();
+      const stopMs = Date.now() - stopStart;
       if (recording.durationMs < 500) throw new Error('Recording too short. Hold shortcut while speaking, then release.');
-      await log(`Transcribing ${Math.round(recording.durationMs / 1000)}s audio...`);
+
+      await log(`Recorded ${(recording.durationMs / 1000).toFixed(1)}s audio. WAV finalized in ${stopMs}ms.`);
+
       const latestConfig = await loadConfig();
+      const transcribeStart = Date.now();
+      await log('Sending audio to transcription provider...');
       const text = await transcribeFile(recording.file, latestConfig);
+      const transcribeMs = Date.now() - transcribeStart;
       if (!text) throw new Error('Empty transcript returned.');
+
+      const saveStart = Date.now();
       await saveTranscript(text, recording.file);
+      const saveMs = Date.now() - saveStart;
+
+      const pasteStart = Date.now();
       await pasteIntoActiveApp(text);
+      const pasteMs = Date.now() - pasteStart;
+
+      await log(`Timing: transcribe ${transcribeMs}ms, save ${saveMs}ms, paste ${pasteMs}ms, total ${Date.now() - totalStart}ms.`);
       await log(`Inserted: ${text}`);
     } finally {
       busy = false;
