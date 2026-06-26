@@ -1,4 +1,7 @@
 import { spawnSync } from 'node:child_process';
+import { writeFileSync, unlinkSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import clipboard from 'clipboardy';
 
 export async function pasteIntoActiveApp(text: string) {
@@ -10,8 +13,10 @@ export async function pasteIntoActiveApp(text: string) {
   }
 
   if (process.platform === 'win32') {
-    const script = 'Add-Type -AssemblyName System.Windows.Forms; Start-Sleep -Milliseconds 80; [System.Windows.Forms.SendKeys]::SendWait("^v")';
-    spawnSync('powershell.exe', ['-NoProfile', '-Command', script], { stdio: 'ignore' });
+    const scriptPath = join(tmpdir(), `wisper-paste-${process.pid}.vbs`);
+    writeFileSync(scriptPath, 'Set WshShell = WScript.CreateObject("WScript.Shell")\nWshShell.SendKeys "^v"\n');
+    spawnSync('wscript.exe', ['//B', scriptPath], { stdio: 'ignore', windowsHide: true });
+    try { unlinkSync(scriptPath); } catch {}
     return;
   }
 

@@ -73,7 +73,7 @@ export async function stopRecording(): Promise<{ file: string; durationMs: numbe
 
   await Promise.race([
     current.done.catch(() => undefined),
-    new Promise((resolve) => setTimeout(resolve, 1200))
+    new Promise((resolve) => setTimeout(resolve, 250))
   ]);
 
   if (!current.process.killed && current.process.exitCode === null) {
