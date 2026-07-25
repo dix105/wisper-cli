@@ -26,6 +26,8 @@ Usage:
   nextbase                 Open interactive tool menu
   nextbase wisper [args]   Run Wisper commands
   nextbase notebot [args]  Run NoteBot commands
+  nextbase uninstall       Remove app/commands; keeps local data
+  nextbase uninstall --purge Remove app plus local Wisper/NoteBot data
 
 Direct commands still work:
   wisper setup
@@ -57,6 +59,7 @@ async function menu() {
 async function main() {
   if (!tool || tool === 'menu') return menu();
   if (tool === 'help' || tool === '--help' || tool === '-h') return printHelp();
+  if (tool === 'uninstall') return runTool('wisper', ['uninstall', ...args]);
   if (tool === 'wisper') return runTool('wisper', args);
   if (tool === 'notebot' || tool === 'note') return runTool('notebot', args);
   throw new Error(`Unknown Nextbase tool: ${tool}. Run: nextbase help`);

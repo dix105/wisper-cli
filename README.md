@@ -203,3 +203,19 @@ See `docs/PLAN.md` for the full completion plan.
 4. `wisper polish "text"` — rewrite dictated text.
 5. Settings command + local config file.
 6. Better history search/filter/copy in the web dashboard.
+
+## Uninstall
+
+Remove the app, command wrappers, autostart entry, and running background processes while preserving local data:
+
+```bash
+nextbase uninstall
+```
+
+To also remove saved Wisper configuration/history/recordings and NoteBot data:
+
+```bash
+nextbase uninstall --purge
+```
+
+Both commands ask for confirmation. Use `--yes` only for scripted/unattended uninstall.

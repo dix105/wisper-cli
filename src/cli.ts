@@ -19,6 +19,7 @@ import { log, readLogs } from './log.js';
 import { clearListenerPid, stopListener, writeListenerPid } from './process-state.js';
 import { spawn } from 'node:child_process';
 import { checkForUpdate, startAutoUpdater } from './updater.js';
+import { uninstallNextbase } from './uninstall.js';
 
 const [command, ...args] = process.argv.slice(2);
 
@@ -33,6 +34,9 @@ async function main() {
       break;
     case 'update':
       await update();
+      break;
+    case 'uninstall':
+      await uninstallCommand(args);
       break;
     case 'provider':
       await selectProvider();
@@ -131,6 +135,8 @@ function printHelp() {
 Commands:
   wisper setup            Simple first-time setup
   wisper update           Install latest version and run only missing setup prompts
+  wisper uninstall        Remove Nextbase CLI app/commands; keeps local data
+  wisper uninstall --purge Remove app plus local Wisper/NoteBot data
   wisper provider         Pick provider from a menu
   wisper polish on/off    Enable or disable auto polish
   wisper polish shortcut  Set selected-text polish shortcut
@@ -156,6 +162,26 @@ Commands:
   wisper add "text"       Save a manual transcript
   wisper help             Show help
 `);
+}
+
+async function uninstallCommand(args: string[]) {
+  const purge = args.includes('--purge');
+  const yes = args.includes('--yes');
+  if (!yes) {
+    const prompt = createPrompt();
+    try {
+      const details = purge
+        ? 'This removes Nextbase CLI, commands, autostart, Wisper history/config/recordings, and NoteBot data. Continue?'
+        : 'This removes Nextbase CLI, commands, autostart, and background services. Local Wisper/NoteBot data will be kept. Continue?';
+      if (!await prompt.confirm(details, false)) {
+        console.log('Uninstall cancelled.');
+        return;
+      }
+    } finally {
+      prompt.close();
+    }
+  }
+  console.log(await uninstallNextbase({ purge }));
 }
 
 async function setup(updateMode = false) {
