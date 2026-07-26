@@ -198,11 +198,24 @@ function collectSpeakerTranscript(value: unknown): string {
 async function uploadToSignedUrl(url: string, file: string, metadata?: Record<string, unknown> | null) {
   const bytes = await readFile(file);
   const headers: Record<string, string> = {};
+
+  // Azure's Put Blob is mandatory-header: without x-ms-blob-type it answers 400, which
+  // is why every long meeting died on "Sarvam signed upload failed: HTTP 400". Sarvam's
+  // own examples use the Azure SDK, which sets it for you, so their docs never mention
+  // it — a raw fetch has to send it itself.
+  if (/\.blob\.core\.windows\.net/i.test(url)) headers['x-ms-blob-type'] = 'BlockBlob';
+
   for (const [key, value] of Object.entries(metadata || {})) {
     if (typeof value === 'string') headers[key] = value;
   }
+
   const response = await fetch(url, { method: 'PUT', headers, body: bytes });
-  if (!response.ok) throw new Error(`Sarvam signed upload failed: HTTP ${response.status}`);
+  if (!response.ok) {
+    // Azure explains the refusal in the body; the status alone was undiagnosable.
+    const body = await response.text().catch(() => '');
+    const detail = body.match(/<Message>([^<\n]+)/)?.[1]?.trim();
+    throw new Error(`Sarvam signed upload failed: HTTP ${response.status}${detail ? ` — ${detail}` : ''}`);
+  }
 }
 
 async function downloadJson(url: string) {
