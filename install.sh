@@ -48,7 +48,12 @@ stop_existing_processes() {
     fi
   done
   if command -v pgrep >/dev/null 2>&1; then
-    pgrep -f "$INSTALL_DIR/dist/(cli|notebot-cli|nextbase-cli)\.js" | while read -r pid; do
+    # `pgrep` exits 1 when nothing matches, and under `set -euo pipefail` that aborted
+    # the whole script — so installing or updating on a machine where nothing happened
+    # to be running failed at this line, before anything was installed. Captured with
+    # `|| true` so "no processes" reads as the ordinary case it is.
+    pids="$(pgrep -f "$INSTALL_DIR/dist/(cli|notebot-cli|nextbase-cli)\.js" 2>/dev/null || true)"
+    for pid in $pids; do
       [ "$pid" = "$$" ] || kill "$pid" 2>/dev/null || true
     done
   fi
