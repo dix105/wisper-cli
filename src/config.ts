@@ -12,8 +12,20 @@ export type ModelOption = {
 };
 
 export type Config = {
+  /** Wisper's dictation provider. NoteBot has its own; see meetingProvider. */
   provider?: Provider;
+  /** Wisper's dictation model. */
   model?: string;
+  /**
+   * NoteBot's transcription provider, independent of Wisper's.
+   *
+   * These existed as one shared pair, so `notebot setup` overwrote what dictation used
+   * and NoteBot inherited whatever Wisper was set to — which meant a 27 minute meeting
+   * being sent to Groq Whisper and rejected for exceeding its 25 MiB limit.
+   */
+  meetingProvider?: Provider;
+  /** NoteBot's transcription model. */
+  meetingModel?: string;
   language?: string;
   shortcut?: string;
   polishShortcut?: string;

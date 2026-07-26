@@ -2,7 +2,7 @@
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, extname, join } from 'node:path';
-import { loadConfig, updateConfig, type Provider } from './config.js';
+import { loadConfig, updateConfig, type Config, type Provider } from './config.js';
 import { createPrompt } from './prompt.js';
 import { startRecording, stopRecording } from './audio.js';
 import { transcribeFile } from './transcribe.js';
@@ -18,6 +18,7 @@ const [command, ...args] = process.argv.slice(2);
 
 async function main() {
   if (command === 'setup') return setup();
+  if (command === 'model' || command === 'provider') return chooseModel();
   if (command === 'meeting') return meeting(args);
   if (command === 'audio') return processAudioCommand(args);
   if (command === 'open' || command === 'app') return openDashboard(args);
@@ -29,11 +30,76 @@ async function main() {
   return help();
 }
 
+/** Providers NoteBot can transcribe with, and the model each uses. */
+const MEETING_PROVIDERS: Array<{ provider: Provider; model: string; label: string }> = [
+  { provider: 'sarvam', model: 'saaras:v3', label: 'Sarvam Saaras v3 — long audio, speaker labels (recommended)' },
+  { provider: 'groq', model: 'whisper-large-v3-turbo', label: 'Groq Whisper — fast, no speaker labels, 25 MiB limit' },
+  { provider: 'nextbase-codex', model: 'codex-transcribe', label: 'Nextbase Codex — subscription gateway, 25 MiB limit' }
+];
+
+function modelFor(provider: Provider) {
+  return MEETING_PROVIDERS.find((entry) => entry.provider === provider)?.model
+    ?? (provider === 'elevenlabs' ? 'scribe_v2' : 'saaras:v3');
+}
+
+/**
+ * The provider and model NoteBot should use — never Wisper's.
+ *
+ * Falls back to Sarvam when a key for it exists, because there was previously no way to
+ * choose separately: NoteBot simply used whatever dictation was set to. Sarvam is the
+ * only configured provider with a Batch API, so it is the only one that handles a long
+ * meeting or returns speaker labels at all.
+ */
+function meetingConfig(config: Config): Config {
+  const provider = config.meetingProvider
+    ?? (config.keys?.sarvam ? 'sarvam' : config.provider);
+  if (!provider) return config;
+  return { ...config, provider, model: config.meetingModel ?? modelFor(provider) };
+}
+
+async function chooseModel() {
+  const config = await loadConfig();
+  const effective = meetingConfig(config);
+  console.log('NoteBot transcription providers:');
+  for (const entry of MEETING_PROVIDERS) {
+    const current = effective.provider === entry.provider;
+    const key = config.keys?.[entry.provider] ? 'key saved' : 'no key';
+    console.log(`  ${current ? '->' : '  '} ${entry.provider.padEnd(15)} ${entry.model.padEnd(24)} ${key}`);
+  }
+  console.log('');
+  console.log(`Wisper dictation keeps its own: ${config.provider ?? 'not set'} / ${config.model ?? 'not set'}`);
+  console.log('');
+
+  const prompt = createPrompt();
+  try {
+    const chosen = await prompt.choose('Provider for meetings:', MEETING_PROVIDERS.map((entry) => entry.label));
+    const entry = MEETING_PROVIDERS.find((option) => option.label === chosen) ?? MEETING_PROVIDERS[0];
+
+    if (!config.keys?.[entry.provider]) {
+      const key = await prompt.ask(`Paste ${entry.provider} API key: `);
+      const result = await verifyProviderKey(entry.provider, key);
+      console.log(result.message);
+      if (!result.ok) throw new Error(`Could not verify ${entry.provider} key. Nothing was changed.`);
+      await updateConfig({ keys: { [entry.provider]: key } });
+    }
+
+    // Only the meeting fields: writing provider/model here is what broke dictation.
+    await updateConfig({ meetingProvider: entry.provider, meetingModel: entry.model });
+    console.log(`Meetings will use ${entry.provider} / ${entry.model}.`);
+    if (entry.provider !== 'sarvam') {
+      console.log('Note: only Sarvam handles audio over 25 MiB and returns speaker labels.');
+    }
+  } finally {
+    prompt.close();
+  }
+}
+
 function help() {
   console.log(`Nextbase NoteBot
 
 Commands:
   notebot setup                  Configure transcription and meeting-summary keys
+  notebot model                  Choose NoteBot's transcription provider (not Wisper's)
   notebot meeting start          Start background meeting recording
   notebot meeting stop           Stop, transcribe, and create meeting notes
   notebot meeting status         Show active meeting state
@@ -62,9 +128,10 @@ async function setup() {
       const result = await verifyProviderKey(selected, key);
       console.log(result.message);
       if (!result.ok) throw new Error(`Could not verify ${selected} key. Setup stopped.`);
-      await updateConfig({ provider: selected, model: selected === 'sarvam' ? 'saaras:v3' : selected === 'nextbase-codex' ? 'codex-transcribe' : 'whisper-large-v3-turbo', keys: { [selected]: key } });
+      // meetingProvider/meetingModel, never provider/model: those belong to Wisper.
+      await updateConfig({ meetingProvider: selected, meetingModel: modelFor(selected), keys: { [selected]: key } });
     } else {
-      await updateConfig({ provider: selected, model: selected === 'sarvam' ? 'saaras:v3' : selected === 'nextbase-codex' ? 'codex-transcribe' : 'whisper-large-v3-turbo' });
+      await updateConfig({ meetingProvider: selected, meetingModel: modelFor(selected) });
       console.log(`${selected} key already saved.`);
     }
 
@@ -95,13 +162,17 @@ async function meeting(args: string[]) {
 
 async function ensureConfigured() {
   let config = await loadConfig();
-  if (!config.provider || !config.keys?.[config.provider] || !config.keys?.groq) {
+  const usable = (candidate: Config) => {
+    const effective = meetingConfig(candidate);
+    return Boolean(effective.provider && effective.keys?.[effective.provider] && candidate.keys?.groq);
+  };
+  if (!usable(config)) {
     if (!process.stdin.isTTY) throw new Error('NoteBot keys are not configured. Run: notebot setup');
     console.log('NoteBot needs transcription and Groq summary keys. Starting setup...');
     await setup();
     config = await loadConfig();
   }
-  if (!config.provider || !config.keys?.[config.provider] || !config.keys?.groq) {
+  if (!usable(config)) {
     throw new Error('NoteBot keys are not configured. Run: notebot setup');
   }
   return config;
@@ -229,7 +300,8 @@ async function processAudioFile(audioPath: string, id: string, startedAt: number
 
   console.log('Transcribing meeting audio...');
   const config = await ensureConfigured();
-  const transcript = await transcribeFile(audioPath, config);
+  // The meeting provider, never Wisper's.
+  const transcript = await transcribeFile(audioPath, meetingConfig(config));
   if (!transcript) throw new Error('Meeting transcription returned no text.');
 
   console.log('Extracting summary, decisions, and action items...');
