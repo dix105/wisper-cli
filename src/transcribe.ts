@@ -12,18 +12,13 @@ export async function transcribeFile(file: string, config: Config): Promise<stri
   if (config.provider === 'groq') return transcribeGroq(file, key, config.model || 'whisper-large-v3-turbo');
   if (config.provider === 'elevenlabs') return transcribeElevenLabs(file, key, config.model || 'scribe_v2');
   if (config.provider === 'nextbase-codex') return transcribeNextbaseCodex(file, key);
+  // No fallback to another provider. This used to catch anything mentioning "batch
+  // api", "upload", "download" or "job" and quietly re-send the file to Groq Whisper —
+  // which caps at 25 MiB and does not diarize, so a long meeting became either a 413 or
+  // a transcript silently missing its speaker labels. A Sarvam failure now surfaces with
+  // its own reason, which is the only thing that leads to fixing the actual cause.
   if (config.provider === 'sarvam') {
-    try {
-      return await transcribeSarvamAuto(file, key, config.model || 'saaras:v3');
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      const groqKey = config.keys?.groq;
-      if (groqKey && /duration exceeds|maximum limit|30 seconds|batch api|sox|chunk|bulk|upload|download|job/i.test(message)) {
-        console.warn('Sarvam Batch/chunking failed. Emergency fallback to Groq Whisper for this file...');
-        return transcribeGroq(file, groqKey, 'whisper-large-v3-turbo');
-      }
-      throw error;
-    }
+    return transcribeSarvamAuto(file, key, config.model || 'saaras:v3');
   }
   throw new Error('Unsupported provider');
 }
@@ -195,9 +190,30 @@ function collectSpeakerTranscript(value: unknown): string {
   return (data.transcript || data.text || '').trim();
 }
 
+/**
+ * The content type to store the uploaded blob as.
+ *
+ * Sarvam validates this and decodes according to it. A wrong value is not a rejection
+ * you would notice: an mp3 stored as the wrong type came back as six noise fragments
+ * with timestamps 4.7x the real duration, and the job still reported Completed. The
+ * same file uploaded as audio/wav returned 152 diarized entries covering the whole
+ * recording. Every value here is from the list Sarvam's own error message enumerates.
+ */
+function contentTypeFor(file: string) {
+  const extension = file.split('.').pop()?.toLowerCase() ?? '';
+  const types: Record<string, string> = {
+    wav: 'audio/wav', wave: 'audio/wav', mp3: 'audio/mpeg', m4a: 'audio/x-m4a',
+    mp4: 'audio/mp4', aac: 'audio/aac', aiff: 'audio/aiff', aif: 'audio/aiff',
+    ogg: 'audio/ogg', opus: 'audio/opus', flac: 'audio/flac', amr: 'audio/amr',
+    wma: 'audio/x-ms-wma', webm: 'audio/webm', pcm: 'audio/pcm_s16le', raw: 'audio/pcm_s16le'
+  };
+  // Accepted by Sarvam, and the honest answer when the format is unknown.
+  return types[extension] ?? 'application/octet-stream';
+}
+
 async function uploadToSignedUrl(url: string, file: string, metadata?: Record<string, unknown> | null) {
   const bytes = await readFile(file);
-  const headers: Record<string, string> = {};
+  const headers: Record<string, string> = { 'content-type': contentTypeFor(file) };
 
   // Azure's Put Blob is mandatory-header: without x-ms-blob-type it answers 400, which
   // is why every long meeting died on "Sarvam signed upload failed: HTTP 400". Sarvam's
@@ -300,12 +316,15 @@ async function transcribeSarvamBatch(file: string, key: string, model: string) {
 async function transcribeSarvamAuto(file: string, key: string, model: string) {
   const duration = audioDurationSeconds(file);
   if (!duration || duration <= 29) return transcribeSarvam(file, key, model);
+
+  // Long audio goes to Batch and stays there. Falling back to 28 second REST chunks
+  // produced a transcript with no speaker labels and a context break every 28 seconds,
+  // while reporting success — so the reason Batch failed was never seen.
   try {
     return await transcribeSarvamBatch(file, key, model);
   } catch (error) {
-    console.warn(`Sarvam Batch failed: ${error instanceof Error ? error.message : String(error)}`);
-    console.warn('Falling back to 28s Sarvam REST chunks without diarization...');
-    return transcribeSarvamWithChunks(file, key, model);
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Sarvam Batch failed, and chunked transcription would lose speaker labels, so it was not attempted.\nReason: ${message}`);
   }
 }
 
