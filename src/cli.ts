@@ -3,12 +3,12 @@ import { loadHistory, saveTranscript } from './storage.js';
 import { startWebApp } from './server.js';
 import { openUrl } from './open.js';
 import { defaultPolishShortcut, defaultShortcut, defaultSpellShortcut, loadConfig, modelOptions, providers, updateConfig, type ModelOption, type Provider } from './config.js';
-import { createPrompt } from './prompt.js';
-import { autostartStatus, disableAutostart, enableAutostart, startListenerNow } from './autostart.js';
+import { createPrompt, type Prompt } from './prompt.js';
+import { autostartStatus, disableAutostart, enableAutostart, launchAgentInstalled, restartLaunchAgent, startListenerNow, stopLaunchAgent } from './autostart.js';
 import { verifyProviderKey } from './verify.js';
 import { cancelRecording, cleanupOldRecordings, isRecording, recordingSignal, startRecording, stopRecording } from './audio.js';
 import { listenForShortcut } from './hotkey.js';
-import { validateShortcut } from './hotkey.js';
+import { normalizeShortcut, validateShortcut } from './hotkey.js';
 import { copyFocusedInputText, copySelectedText, pasteIntoActiveApp, shutdownPasteHelper } from './paste.js';
 import { transcribeFile } from './transcribe.js';
 import { polishDictationIfEnabled, rewriteText, type RewriteMode } from './polish.js';
@@ -41,6 +41,10 @@ async function main() {
     case 'provider':
       await selectProvider();
       break;
+    case 'key':
+    case 'keys':
+      await keyCommand(args[0]);
+      break;
     case 'polish':
       await polishCommand(args);
       break;
@@ -71,7 +75,11 @@ async function main() {
       break;
     case 'listen':
       if (args.includes('--foreground')) {
-        await stopListener();
+        // Foreground debugging cannot coexist with launchd KeepAlive: it would
+        // revive its own listener, which then sweeps this one away.
+        if (await launchAgentInstalled() && stopLaunchAgent()) {
+          console.log('Paused the LaunchAgent for this session. Re-enable with: wisper autostart on');
+        }
         await listen();
       }
       else await startListenerAndReport();
@@ -83,12 +91,18 @@ async function main() {
       console.log(await readLogs());
       break;
     case 'stop': {
+      // With a LaunchAgent, killing the process alone is pointless: KeepAlive
+      // restarts it immediately. Boot the job out, then sweep any strays.
+      const managed = await launchAgentInstalled() && stopLaunchAgent();
       const stopped = await stopListener();
-      console.log(stopped ? 'Wisper listener stopped.' : 'No running listener found.');
+      if (managed) {
+        console.log('Wisper listener stopped. It starts again at next login, or run: wisper listen');
+      } else {
+        console.log(stopped ? 'Wisper listener stopped.' : 'No running listener found.');
+      }
       break;
     }
     case 'restart': {
-      await stopListener();
       await startListenerAndReport();
       break;
     }
@@ -144,6 +158,7 @@ Commands:
   wisper spell shortcut   Set focused-input spelling-fix shortcut
   wisper media on/off     Lower system volume while recording
   wisper autostart on/off Enable or disable startup listener
+  wisper key [provider]         Show or replace a stored API key
   wisper autoupdate on/off/check Control background auto-updates
   wisper shortcut [key]   Set dictation shortcut, e.g. F15 or Ctrl+Alt+Space
   wisper shortcuts        Show shortcut status and supported keys
@@ -305,9 +320,19 @@ async function update() {
 }
 
 async function startListenerAndReport() {
-  await stopListener();
-  const listener = startListenerNow();
-  console.log(listener.message);
+  if (await launchAgentInstalled()) {
+    // Do not spawn our own copy here: launchd KeepAlive would revive the one we
+    // just killed and both would register the same shortcuts.
+    if (!restartLaunchAgent()) {
+      console.log('Could not restart the LaunchAgent. Run: wisper autostart on');
+      return;
+    }
+    console.log('Wisper listener restarted through macOS LaunchAgent.');
+  } else {
+    await stopListener();
+    const listener = startListenerNow();
+    console.log(listener.message);
+  }
   await new Promise((resolve) => setTimeout(resolve, 1200));
   const logs = await readLogs();
   const tail = logs.split(/\r?\n/).slice(-25).join('\n');
@@ -363,7 +388,6 @@ async function polishCommand(args: string[]) {
     } finally {
       prompt.close();
     }
-    await stopListener();
     await startListenerAndReport();
     return;
   }
@@ -371,22 +395,18 @@ async function polishCommand(args: string[]) {
   if (['off', 'disable', 'disabled'].includes(action)) {
     await updateConfig({ autoPolish: false });
     console.log('Auto polish disabled.');
-    await stopListener();
     await startListenerAndReport();
     return;
   }
 
   if (action === 'shortcut') {
     const directShortcut = args.slice(1).join('+').trim();
-    const prompt = createPrompt();
-    try {
-      const shortcut = directShortcut || await captureShortcut((await loadConfig()).polishShortcut || defaultPolishShortcut);
-      await updateConfig({ polishShortcut: shortcut });
-      console.log(`Polish shortcut set to ${shortcut}.`);
-    } finally {
-      prompt.close();
-    }
-    await stopListener();
+    const shortcut = directShortcut || await captureShortcut((await loadConfig()).polishShortcut || defaultPolishShortcut);
+    // Saving a key this platform cannot register would break the listener on
+    // its next start, so reject it here instead.
+    validateShortcut(shortcut);
+    await updateConfig({ polishShortcut: shortcut });
+    console.log(`Polish shortcut set to ${shortcut}.`);
     await startListenerAndReport();
     return;
   }
@@ -412,15 +432,10 @@ async function spellCommand(args: string[]) {
 
   if (action === 'shortcut') {
     const directShortcut = args.slice(1).join('+').trim();
-    const prompt = createPrompt();
-    try {
-      const shortcut = directShortcut || await captureShortcut((await loadConfig()).spellShortcut || defaultSpellShortcut);
-      await updateConfig({ spellShortcut: shortcut });
-      console.log(`Spell-fix shortcut set to ${shortcut}.`);
-    } finally {
-      prompt.close();
-    }
-    await stopListener();
+    const shortcut = directShortcut || await captureShortcut((await loadConfig()).spellShortcut || defaultSpellShortcut);
+    validateShortcut(shortcut);
+    await updateConfig({ spellShortcut: shortcut });
+    console.log(`Spell-fix shortcut set to ${shortcut}.`);
     await startListenerAndReport();
     return;
   }
@@ -480,7 +495,6 @@ async function autoUpdateCommand(args: string[]) {
     const interval = Number.isFinite(minutes) ? Math.max(15, minutes) : 180;
     await updateConfig({ autoUpdate: true, autoUpdateIntervalMinutes: interval });
     console.log(`Auto update enabled. Check interval: ${interval} minutes.`);
-    await stopListener();
     await startListenerAndReport();
     return;
   }
@@ -488,7 +502,6 @@ async function autoUpdateCommand(args: string[]) {
   if (['off', 'disable', 'disabled'].includes(action)) {
     await updateConfig({ autoUpdate: false });
     console.log('Auto update disabled.');
-    await stopListener();
     await startListenerAndReport();
     return;
   }
@@ -585,6 +598,54 @@ async function showShortcuts() {
   console.log('Note: F13-F24 often do not capture inside terminals. Type them directly with the commands above.');
 }
 
+/**
+ * Show or replace a stored API key.
+ *
+ * There was no way to change one: every path that needed a key reused whatever was
+ * saved, so an expired or revoked key could only be fixed by editing config.json by
+ * hand. Keys are shared with NoteBot, which is said out loud rather than discovered.
+ */
+async function keyCommand(which?: string) {
+  const config = await loadConfig();
+
+  if (!which) {
+    console.log('API keys:');
+    for (const provider of providers) {
+      const saved = Boolean(config.keys?.[provider]);
+      console.log(`  ${saved ? '->' : '  '} ${provider.padEnd(16)} ${saved ? 'saved' : 'not set'}`);
+    }
+    console.log('');
+    console.log('Replace or add one with: wisper key <provider>');
+    console.log('Keys are shared with NoteBot; the models are not.');
+    return;
+  }
+
+  const provider = which.trim().toLowerCase() as Provider;
+  if (!providers.includes(provider)) {
+    throw new Error(`Unknown provider "${which}". One of: ${providers.join(', ')}`);
+  }
+
+  const had = Boolean(config.keys?.[provider]);
+  if (had) console.log(`A ${provider} key is already saved. Pasting one replaces it.`);
+
+  const prompt = createPrompt();
+  try {
+    const key = (await prompt.ask(provider === 'nextbase-codex' ? 'Paste Nextbase gateway key (nbmg_...): ' : `Paste ${provider} API key: `)).trim();
+    if (!key) throw new Error('No key entered. Nothing was changed.');
+
+    // Verified before saving, so a bad key fails here rather than at the next dictation.
+    const result = await verifyProviderKey(provider, key);
+    console.log(result.message);
+    if (!result.ok) throw new Error(`Key not saved: ${provider} rejected it.`);
+
+    await updateConfig({ keys: { [provider]: key } });
+    console.log(`${provider} key ${had ? 'replaced' : 'saved'}.`);
+    if (config.provider === provider) console.log('Restart the listener to pick it up: wisper restart');
+  } finally {
+    prompt.close();
+  }
+}
+
 async function selectProvider(prompt = createPrompt()) {
   try {
     const provider = await prompt.choose('Select provider:', providers) as Provider;
@@ -636,7 +697,6 @@ async function autoSelectMic(updateMode = false) {
 async function selectMic(auto = false) {
   if (auto) {
     await autoSelectMic();
-    await stopListener();
     await startListenerAndReport();
     return;
   }
@@ -654,31 +714,30 @@ async function selectMic(auto = false) {
 }
 
 async function setShortcutCommand(directShortcut = '') {
-  const prompt = createPrompt();
-  try {
-    await setShortcut(false, prompt, directShortcut, true);
-  } finally {
-    prompt.close();
-  }
+  await setShortcut(false, undefined, directShortcut, true);
 }
 
-async function setShortcut(allowDefault = false, prompt = createPrompt(), directShortcut = '', restart = false) {
+async function setShortcut(allowDefault = false, prompt?: Prompt, directShortcut = '', restart = false) {
+  // Build a prompt only when we actually have to ask. createPrompt() blocks on a
+  // non-TTY stdin, which used to make `wisper shortcut F15` fail in scripts.
+  const caller = prompt;
+  let active = prompt;
   try {
     const shortcut = directShortcut.trim() || await (async () => {
-      const typed = await prompt.confirm('Capture shortcut by pressing keys now?', true);
+      active ??= createPrompt();
+      const typed = await active.confirm('Capture shortcut by pressing keys now?', true);
       return typed
         ? await captureShortcut(defaultShortcut)
-        : (await prompt.ask(`Shortcut${allowDefault ? ` [${defaultShortcut}]` : ''}: `) || defaultShortcut);
+        : (await active.ask(`Shortcut${allowDefault ? ` [${defaultShortcut}]` : ''}: `) || defaultShortcut);
     })();
     validateShortcut(shortcut);
     await updateConfig({ shortcut });
     console.log(`Shortcut set to ${shortcut}.`);
-    if (restart || arguments.length < 2 || directShortcut) {
-      await stopListener();
+    if (restart || !caller || directShortcut) {
       await startListenerAndReport();
     }
   } finally {
-    if (arguments.length < 2 || directShortcut) prompt.close();
+    if (!caller) active?.close();
   }
 }
 
@@ -699,6 +758,10 @@ async function showStatus() {
 }
 
 async function listen() {
+  // Last listener wins. An autostart launcher can revive its own copy while a
+  // manually started one is alive; without this sweep both stay registered and
+  // every shortcut press fires once per listener.
+  await stopListener();
   await writeListenerPid();
   process.once('exit', () => { void cancelRecording(); shutdownPasteHelper(); void clearListenerPid(); });
   process.once('SIGINT', () => { void cancelRecording().finally(() => { shutdownPasteHelper(); void clearListenerPid(); process.exit(0); }); });
@@ -715,19 +778,40 @@ async function listen() {
   await log(`Auto update: ${config.autoUpdate === false ? 'disabled' : `enabled every ${config.autoUpdateIntervalMinutes ?? 180}m`}`);
   await log('Press shortcut once to start recording, again to stop. Press Ctrl+C to stop listener.');
 
-  const stopShortcut = listenForShortcut(shortcut, (event) => {
+  // One unusable shortcut must never take down the whole listener. Registration
+  // throws for keys the platform cannot map, and an unhandled throw here used to
+  // kill dictation too — silently, because autostart restarts hide stderr.
+  const registerShortcut = (label: string, value: string, handler: (event?: 'down' | 'up') => void) => {
+    try {
+      return listenForShortcut(value, handler);
+    } catch (error) {
+      void log(`${label} shortcut "${value}" could not be registered: ${(error as Error).message}`);
+      return undefined;
+    }
+  };
+
+  const stopShortcut = registerShortcut('Dictation', shortcut, (event) => {
     void handleShortcutEvent(event).catch((error) => log(`Error: ${error.message}`));
   });
+
+  // Compare normalized shortcuts. `CommandOrControl+Shift+P` and `Cmd+Shift+P`
+  // are the same physical combo, and registering both makes one press fire twice.
+  const dictationKey = normalizeShortcut(shortcut);
   const polishShortcut = config.polishShortcut || defaultPolishShortcut;
-  const stopPolishShortcut = polishShortcut && polishShortcut !== shortcut
-    ? listenForShortcut(polishShortcut, (event) => {
+  const polishKey = normalizeShortcut(polishShortcut);
+  if (polishKey === dictationKey) await log(`Polish shortcut ${polishShortcut} matches the dictation shortcut. Skipped.`);
+  const stopPolishShortcut = polishKey !== dictationKey
+    ? registerShortcut('Polish', polishShortcut, (event) => {
         if (event === 'up') return;
         void handlePolishShortcut().catch((error) => log(`Polish error: ${error.message}`));
       })
     : undefined;
+
   const spellShortcut = config.spellShortcut || defaultSpellShortcut;
-  const stopSpellShortcut = spellShortcut && spellShortcut !== shortcut && spellShortcut !== polishShortcut
-    ? listenForShortcut(spellShortcut, (event) => {
+  const spellKey = normalizeShortcut(spellShortcut);
+  if (spellKey === dictationKey || spellKey === polishKey) await log(`Spell-fix shortcut ${spellShortcut} matches another shortcut. Skipped.`);
+  const stopSpellShortcut = spellKey !== dictationKey && spellKey !== polishKey
+    ? registerShortcut('Spell-fix', spellShortcut, (event) => {
         if (event === 'up') return;
         void handleSpellShortcut().catch((error) => log(`Spell-fix error: ${error.message}`));
       })

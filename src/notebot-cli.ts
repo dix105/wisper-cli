@@ -19,6 +19,7 @@ const [command, ...args] = process.argv.slice(2);
 async function main() {
   if (command === 'setup') return setup();
   if (command === 'model' || command === 'provider') return chooseModel();
+  if (command === 'key' || command === 'keys') return keyCommand(args[0]);
   if (command === 'meeting') return meeting(args);
   if (command === 'audio') return processAudioCommand(args);
   if (command === 'open' || command === 'app') return openDashboard(args);
@@ -94,12 +95,65 @@ async function chooseModel() {
   }
 }
 
+/**
+ * Show or replace the two keys NoteBot needs.
+ *
+ * There was no way to change a saved key: setup only asked when none existed, so a key
+ * that had expired or been revoked could not be replaced at all — the tool simply kept
+ * failing with "Invalid or missing authentication credentials".
+ */
+async function keyCommand(which?: string) {
+  const config = await loadConfig();
+  const wanted: Array<{ provider: Provider; purpose: string }> = [
+    { provider: 'sarvam', purpose: 'transcription (required)' },
+    { provider: 'groq', purpose: 'summaries and action items' }
+  ];
+
+  if (!which) {
+    console.log('API keys:');
+    for (const entry of wanted) {
+      const saved = Boolean(config.keys?.[entry.provider]);
+      console.log(`  ${saved ? '->' : '  '} ${entry.provider.padEnd(8)} ${entry.purpose.padEnd(30)} ${saved ? 'saved' : 'not set'}`);
+    }
+    console.log('');
+    console.log('Replace or add one with: notebot key sarvam');
+    console.log('Keys are shared with Wisper; the models are not.');
+    return;
+  }
+
+  const provider = which.trim().toLowerCase();
+  if (provider !== 'sarvam' && provider !== 'groq') {
+    throw new Error(`NoteBot uses the sarvam and groq keys. Got "${which}".`);
+  }
+
+  const had = Boolean(config.keys?.[provider as Provider]);
+  if (had) console.log(`A ${provider} key is already saved. Pasting one replaces it.`);
+
+  const prompt = createPrompt();
+  try {
+    const key = (await prompt.ask(`Paste ${provider} API key: `)).trim();
+    if (!key) throw new Error('No key entered. Nothing was changed.');
+
+    // Verified before saving, so a bad key is rejected here rather than at the next
+    // meeting — which is how the previous one went unnoticed.
+    const result = await verifyProviderKey(provider as Provider, key);
+    console.log(result.message);
+    if (!result.ok) throw new Error(`Key not saved: ${provider} rejected it.`);
+
+    await updateConfig({ keys: { [provider]: key } });
+    console.log(`${provider} key ${had ? 'replaced' : 'saved'}.`);
+  } finally {
+    prompt.close();
+  }
+}
+
 function help() {
   console.log(`Nextbase NoteBot
 
 Commands:
   notebot setup                  Configure transcription and meeting-summary keys
   notebot model                  Choose NoteBot's transcription provider (not Wisper's)
+  notebot key [sarvam|groq]      Show or replace an API key
   notebot meeting start          Start background meeting recording
   notebot meeting stop           Stop, transcribe, and create meeting notes
   notebot meeting status         Show active meeting state
@@ -132,7 +186,16 @@ async function setup() {
       await updateConfig({ meetingProvider: selected, meetingModel: modelFor(selected), keys: { [selected]: key } });
     } else {
       await updateConfig({ meetingProvider: selected, meetingModel: modelFor(selected) });
-      console.log(`${selected} key already saved.`);
+      // Offered rather than announced: a saved key can be expired, and this used to be a
+      // dead end with no way to replace it.
+      const replace = await prompt.confirm(`A ${selected} key is saved. Replace it?`, false);
+      if (replace) {
+        const key = (await prompt.ask(`Paste ${selected} API key: `)).trim();
+        const result = await verifyProviderKey(selected, key);
+        console.log(result.message);
+        if (!result.ok) throw new Error(`Could not verify ${selected} key. The old one is kept.`);
+        await updateConfig({ keys: { [selected]: key } });
+      }
     }
 
     const refreshed = await loadConfig();
