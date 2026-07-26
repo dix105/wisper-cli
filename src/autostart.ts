@@ -1,6 +1,6 @@
 import { access, mkdir, rm, writeFile } from 'node:fs/promises';
 import { spawn, spawnSync } from 'node:child_process';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 
@@ -8,6 +8,34 @@ export type AutostartResult = {
   enabled: boolean;
   message: string;
 };
+
+const launchAgentLabel = 'com.wisper.cli';
+
+function launchAgentFile() {
+  return join(homedir(), 'Library', 'LaunchAgents', `${launchAgentLabel}.plist`);
+}
+
+function launchdTarget() {
+  return `gui/${process.getuid?.() ?? 0}/${launchAgentLabel}`;
+}
+
+export async function launchAgentInstalled() {
+  return process.platform === 'darwin' && await exists(launchAgentFile());
+}
+
+// launchd owns the listener once a LaunchAgent exists. KeepAlive revives the job
+// the moment anything kills it, so restarting must go through launchctl —
+// spawning a second copy here is what produced duplicate listeners.
+export function restartLaunchAgent() {
+  if (spawnSync('launchctl', ['kickstart', '-k', launchdTarget()], { stdio: 'ignore' }).status === 0) return true;
+  spawnSync('launchctl', ['unload', launchAgentFile()], { stdio: 'ignore' });
+  return spawnSync('launchctl', ['load', launchAgentFile()], { stdio: 'ignore' }).status === 0;
+}
+
+export function stopLaunchAgent() {
+  if (spawnSync('launchctl', ['bootout', launchdTarget()], { stdio: 'ignore' }).status === 0) return true;
+  return spawnSync('launchctl', ['unload', launchAgentFile()], { stdio: 'ignore' }).status === 0;
+}
 
 function currentCliCommand() {
   const cliPath = fileURLToPath(new URL('./cli.js', import.meta.url));
@@ -44,9 +72,8 @@ export async function enableAutostart(): Promise<AutostartResult> {
   const command = currentCliCommand();
 
   if (process.platform === 'darwin') {
-    const dir = join(homedir(), 'Library', 'LaunchAgents');
-    const file = join(dir, 'com.wisper.cli.plist');
-    await mkdir(dir, { recursive: true });
+    const file = launchAgentFile();
+    await mkdir(dirname(file), { recursive: true });
     await writeFile(file, `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -59,6 +86,8 @@ export async function enableAutostart(): Promise<AutostartResult> {
     </array>
     <key>RunAtLoad</key><true/>
     <key>KeepAlive</key><true/>
+    <key>StandardOutPath</key><string>${join(homedir(), '.wisper-cli', 'launchd.log')}</string>
+    <key>StandardErrorPath</key><string>${join(homedir(), '.wisper-cli', 'launchd.log')}</string>
   </dict>
 </plist>
 `);
